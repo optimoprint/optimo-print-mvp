@@ -5,8 +5,7 @@ import pandas as pd
 import qrcode
 from io import BytesIO
 
-# --- НАСТРОЙКА ПУТЕЙ (Универсально для Windows и Cloud) ---
-# Используем текущую директорию скрипта для создания папки uploads
+# --- НАСТРОЙКА ПУТЕЙ ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
@@ -58,37 +57,58 @@ def update_order_status(order_id, status):
 
 # --- ИНТЕРФЕЙС ---
 st.set_page_config(page_title="Optimo Print Cloud", layout="centered")
-st.title("🖨️ Optimo Print Terminal")
+st.title("🖨️ Optimo Print")
+st.caption("Сервис мгновенной печати")
 
-uploaded_file = st.file_uploader("Загрузите документ", type=['pdf', 'jpg', 'png'])
+uploaded_file = st.file_uploader("1. Загрузите документ (PDF, JPG, PNG)", type=['pdf', 'jpg', 'png'])
 
 if uploaded_file:
-    # Безопасное сохранение файла
+    # Сохранение файла
     file_name = uploaded_file.name
     save_path = os.path.join(UPLOAD_DIR, file_name)
     
     with open(save_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
     
-    st.success(f"Файл {file_name} загружен!")
+    st.success(f"✅ Файл {file_name} загружен")
     
-    price = 500 # Тестовая цена
-    st.info(f"Сумма к оплате: {price} тенге")
+    st.divider()
+    st.subheader("2. Параметры печати")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        color_option = st.radio("Цветность", ["Черно-белая (100 ₸)", "Цветная (250 ₸)"])
+    with col2:
+        copies = st.number_input("Количество копий", min_value=1, value=1, step=1)
+    
+    # Расчет цены
+    price_per_page = 100 if "Черно-белая" in color_option else 250
+    total_price = price_per_page * copies
+    
+    st.metric("Итого к оплате", f"{total_price} тенге")
+    
+    st.divider()
+    st.subheader("3. Оплата")
 
-    if st.button("Сгенерировать QR"):
-        # Сохраняем в базу путь к файлу
-        order_id = save_order("Cloud_Terminal_1", price, save_path)
+    # Используем session_state, чтобы QR не исчезал при нажатии кнопок
+    if st.button("Сформировать Kaspi QR", use_container_width=True):
+        order_id = save_order("Cloud_Terminal_Almaty", total_price, save_path)
+        st.session_state['current_order_id'] = order_id
         
-        # Генерация QR
-        qr_link = f"https://kaspi.kz/pay/OptimoPrint?amount={price}&order={order_id}"
+        # Ссылка для QR
+        qr_link = f"https://kaspi.kz/pay/OptimoPrint?amount={total_price}&order={order_id}"
         qr_img = qrcode.make(qr_link)
         buf = BytesIO()
         qr_img.save(buf)
         
-        st.image(buf, width=300, caption=f"Заказ №{order_id}")
-        st.write("После оплаты нажмите кнопку ниже")
-        
-        if st.button("✅ Подтвердить оплату"):
-            update_order_status(order_id, 'Paid')
-            st.success("Статус обновлен на 'Оплачено'!")
+        st.image(buf, width=250, caption=f"Заказ №{order_id}")
+        st.warning("Отсканируйте QR в приложении Kaspi и оплатите")
+
+    # Кнопка подтверждения оплаты
+    if 'current_order_id' in st.session_state:
+        if st.button(f"✅ Я оплатил заказ №{st.session_state['current_order_id']}", use_container_width=True):
+            update_order_status(st.session_state['current_order_id'], 'Paid')
+            st.success("Оплата подтверждена! Документ отправлен в очередь печати.")
             st.balloons()
+            # Очищаем состояние после успеха
+            del st.session_state['current_order_id']
