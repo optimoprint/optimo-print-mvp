@@ -1,20 +1,43 @@
 import streamlit as st
-import sqlite3
+import requests
 import os
-import pandas as pd
-import qrcode
-from io import BytesIO
+import aspose.words as aw
+import aspose.cells as ac
 
-# --- НАСТРОЙКА ПУТЕЙ ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+# Данные вашего бота (заполните своими)
+TELEGRAM_TOKEN = "ВАШ_ТОКЕН"
+CHAT_ID = "ID_ВАШЕЙ_ГРУППЫ"
 
-if not os.path.exists(UPLOAD_DIR):
-    try:
-        os.makedirs(UPLOAD_DIR)
-    except Exception as e:
-        st.error(f"Ошибка создания папки: {e}")
+def send_to_telegram(file_path, caption):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
+    with open(file_path, "rb") as f:
+        requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"document": f})
 
+# Функция конвертации и отправки
+def process_and_send(uploaded_file, copies, check_num):
+    temp_path = f"temp_{uploaded_file.name}"
+    with open(temp_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    
+    # Конвертируем все в PDF для единообразия
+    pdf_path = temp_path.replace(os.path.splitext(temp_path)[1], ".pdf")
+    
+    if temp_path.endswith('.docx'):
+        aw.Document(temp_path).save(pdf_path)
+    elif temp_path.endswith('.xlsx'):
+        ac.Workbook(temp_path).save(pdf_path)
+    else:
+        pdf_path = temp_path # Если уже PDF
+
+    # Отправляем в Telegram с пометкой для Агента
+    caption = f"PRINT|COPIES:{copies}|CHECK:{check_num}"
+    send_to_telegram(pdf_path, caption)
+    
+    # Чистим временные файлы на сервере
+    os.remove(temp_path)
+    if os.path.exists(pdf_path) and pdf_path != temp_path:
+        os.remove(pdf_path)
+        
 # --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ---
 def init_db():
     conn = sqlite3.connect('optimo_print.db')
