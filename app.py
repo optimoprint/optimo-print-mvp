@@ -3,40 +3,71 @@ import requests
 import os
 import aspose.words as aw
 import aspose.cells as ac
+from PyPDF2 import PdfReader
 
-# Данные вашего бота (заполните своими)
-TELEGRAM_TOKEN = "ВАШ_ТОКЕН"
-CHAT_ID = "ID_ВАШЕЙ_ГРУППЫ"
+# --- ВАШИ ДАННЫЕ ---
+TELEGRAM_TOKEN = "8542318789:AAGuKJn9MaRkIpsrcvl5LzSYTBJfPIc9wMs"
+CHAT_ID = "5271547482"
 
 def send_to_telegram(file_path, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
-    with open(file_path, "rb") as f:
-        requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"document": f})
+    try:
+        with open(file_path, "rb") as f:
+            response = requests.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"document": f})
+        return response.status_code == 200
+    except Exception as e:
+        st.error(f"Ошибка отправки в Telegram: {e}")
+        return False
 
-# Функция конвертации и отправки
-def process_and_send(uploaded_file, copies, check_num):
-    temp_path = f"temp_{uploaded_file.name}"
-    with open(temp_path, "wb") as f:
+# Функция точного подсчета страниц (Aspose)
+def get_page_count(uploaded_file):
+    temp_name = f"count_{uploaded_file.name}"
+    with open(temp_name, "wb") as f:
         f.write(uploaded_file.getbuffer())
-    
-    # Конвертируем все в PDF для единообразия
-    pdf_path = temp_path.replace(os.path.splitext(temp_path)[1], ".pdf")
-    
-    if temp_path.endswith('.docx'):
-        aw.Document(temp_path).save(pdf_path)
-    elif temp_path.endswith('.xlsx'):
-        ac.Workbook(temp_path).save(pdf_path)
-    else:
-        pdf_path = temp_path # Если уже PDF
+    try:
+        if temp_name.endswith('.docx'):
+            return aw.Document(temp_name).page_count
+        elif temp_name.endswith('.xlsx'):
+            wb = ac.Workbook(temp_name)
+            count = 0
+            for i in range(wb.worksheets.count):
+                render = ac.SheetRender(wb.worksheets.get(i), ac.ImageOrPrintOptions())
+                count += render.page_count
+            return count
+        elif temp_name.endswith('.pdf'):
+            return len(PdfReader(temp_name).pages)
+        return 1
+    finally:
+        if os.path.exists(temp_name): os.remove(temp_name)
 
-    # Отправляем в Telegram с пометкой для Агента
-    caption = f"PRINT|COPIES:{copies}|CHECK:{check_num}"
-    send_to_telegram(pdf_path, caption)
+# --- ИНТЕРФЕЙС ---
+st.title("🖨️ Optimo Print")
+files = st.file_uploader("Загрузите файлы", type=['pdf', 'docx', 'xlsx', 'jpg', 'png'], accept_multiple_files=True)
+
+if files:
+    total_pages = sum([get_page_count(f) for f in files])
+    copies = st.number_input("Кол-во копий каждого файла", min_value=1, value=1)
     
-    # Чистим временные файлы на сервере
-    os.remove(temp_path)
-    if os.path.exists(pdf_path) and pdf_path != temp_path:
-        os.remove(pdf_path)
+    st.info(f"Всего страниц к печати: {total_pages * copies}")
+    check_num = st.text_input("Введите 4 цифры чека:")
+
+    if st.button("🚀 ОПЛАТИТЬ И ПЕЧАТАТЬ", type="primary"):
+        if check_num:
+            for f in files:
+                # Отправляем файл боту
+                caption = f"PRINT|COPIES:{copies}|CHECK:{check_num}|FILE:{f.name}"
+                
+                # Сохраняем временно для отправки
+                with open(f.name, "wb") as temp_f:
+                    temp_f.write(f.getbuffer())
+                
+                if send_to_telegram(f.name, caption):
+                    st.success(f"Файл {f.name} отправлен!")
+                os.remove(f.name)
+            st.balloons()
+        else:
+            st.warning("Введите номер чека!")
+            
         
 # --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ---
 def init_db():
